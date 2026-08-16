@@ -6,7 +6,15 @@ function getExportFilename(ext, rootName) {
 }
 
 function sanitizeRootName(name) {
-  return (name || 'unknown').trim().replace(/:/g, ' -');
+  const cleaned = (name || 'unknown')
+    .trim()
+    .replace(/:/g, ' -')
+    .replace(/[\\/<>:"|?*\u0000-\u001f]/g, '_')
+    .replace(/\s+/g, ' ')
+    .replace(/^\.+/, '')
+    .slice(0, 80)
+    .trim();
+  return cleaned || 'unknown';
 }
 
 function downloadBlob(blob, filename) {
@@ -89,7 +97,8 @@ function buildMindmapSvg(tree) {
   }
 
   function layout(node, x, top) {
-    const width = measureLabel(node.name);
+    const name = (node && node.name) || '';
+    const width = measureLabel(name);
     const children = node.children || [];
     const childLayouts = [];
     let childrenHeight = 0;
@@ -241,7 +250,24 @@ function fetchMindmapTree(tabId) {
         return null;
       }
 
-      const shareButton = document.querySelector('artifact-viewer button[aria-label="Partager"][jslog]');
+      const candidates = Array.from(
+        document.querySelectorAll('artifact-viewer button[jslog]')
+      );
+      const shareButton = candidates.find(button => {
+        const decoded = decodeJslogValue(button.getAttribute('jslog') || '');
+        if (!decoded) {
+          return false;
+        }
+        try {
+          return JSON.parse(decoded)
+            .flat(Infinity)
+            .filter(v => typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v))
+            .length >= 2;
+        } catch (error) {
+          return false;
+        }
+      });
+
       if (!shareButton) {
         return { error: 'Mindmap artifact not found in the current notebook view' };
       }
@@ -279,7 +305,7 @@ function fetchMindmapTree(tabId) {
         'source-path': `/notebook/${notebookId}`,
         bl,
         'f.sid': fSid,
-        hl: document.documentElement.lang || 'fr',
+        hl: document.documentElement.lang || 'en',
         _reqid: String(Date.now() % 1000000),
         rt: 'c'
       });
