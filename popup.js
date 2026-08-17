@@ -282,6 +282,181 @@ function escapeXml(value) {
     .replace(/'/g, '&apos;');
 }
 
+function countTreeNodes(node) {
+  if (!node) {
+    return 0;
+  }
+
+  let total = 1;
+  for (const child of node.children || []) {
+    total += countTreeNodes(child);
+  }
+  return total;
+}
+
+function createVymUuid() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `{${crypto.randomUUID()}}`;
+  }
+
+  const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx';
+  const uuid = template.replace(/[xy]/g, char => {
+    const rand = Math.floor(Math.random() * 16);
+    const value = char === 'x' ? rand : ((rand & 0x3) | 0x8);
+    return value.toString(16);
+  });
+
+  return `{${uuid}}`;
+}
+
+function buildVymXml(tree) {
+  const vymVersion = '2.9.27';
+  const topLevel = tree.children || [];
+  const branchSpacingY = 110;
+  const branchStartY = -Math.floor((Math.max(topLevel.length - 1, 0) * branchSpacingY) / 2);
+  const branchOffsetX = 220;
+  const branchTextColor = '#000000';
+  const branchCount = Math.max(0, countTreeNodes(tree) - 1);
+  const today = new Date().toISOString().slice(0, 10);
+
+  function buildBranch(node, depth = 1, index = 0) {
+    const indent = '    '.repeat(depth + 1);
+    const attributes = [`uuid="${createVymUuid()}"`, 'hideLink="false"'];
+
+    if (depth === 1) {
+      attributes.push(`relPosX="${branchOffsetX}"`);
+      attributes.push(`relPosY="${branchStartY + index * branchSpacingY}"`);
+    }
+
+    const children = node.children || [];
+    const lines = [`${indent}<branch ${attributes.join(' ')}>`];
+    lines.push(`${indent}    <heading textMode="plainText" textColor="${branchTextColor}" text="${escapeXml(node.name || 'unknown')}"></heading>`);
+
+    for (const [childIndex, child] of children.entries()) {
+      lines.push(buildBranch(child, depth + 1, childIndex));
+    }
+
+    lines.push(`${indent}</branch>`);
+    return lines.join('\n');
+  }
+
+  return [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    '<!DOCTYPE vymmap>',
+    `<vymmap version="${vymVersion}" date="${today}" author="Mindmap Exporter" title="${escapeXml(tree.name || 'unknown')}" comment="" branchCount="${branchCount}" mapZoomFactor="1" mapRotation="0">`,
+    `    <mapcenter uuid="${createVymUuid()}" posX="0" posY="0">`,
+    `        <heading textMode="plainText" textColor="${branchTextColor}" text="${escapeXml(tree.name || 'unknown')}"></heading>`,
+    topLevel.map((child, index) => buildBranch(child, 1, index)).join('\n'),
+    '    </mapcenter>',
+    '</vymmap>'
+  ].join('\n');
+}
+
+function getDosDateTime(date) {
+  const year = Math.max(1980, date.getFullYear());
+  const dosDate =
+    ((year - 1980) << 9) |
+    ((date.getMonth() + 1) << 5) |
+    date.getDate();
+  const dosTime =
+    (date.getHours() << 11) |
+    (date.getMinutes() << 5) |
+    Math.floor(date.getSeconds() / 2);
+
+  return { dosDate, dosTime };
+}
+
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i += 1) {
+    let value = i;
+    for (let j = 0; j < 8; j += 1) {
+      value = (value & 1) ? (0xedb88320 ^ (value >>> 1)) : (value >>> 1);
+    }
+    table[i] = value >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function createStoredZip(entries) {
+  const encoder = new TextEncoder();
+  const now = new Date();
+  const { dosDate, dosTime } = getDosDateTime(now);
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const nameBytes = encoder.encode(entry.name);
+    const dataBytes = typeof entry.data === 'string' ? encoder.encode(entry.data) : entry.data;
+    const checksum = crc32(dataBytes);
+
+    const local = new Uint8Array(30 + nameBytes.length + dataBytes.length);
+    const localView = new DataView(local.buffer);
+    localView.setUint32(0, 0x04034b50, true);
+    localView.setUint16(4, 20, true);
+    localView.setUint16(6, 0, true);
+    localView.setUint16(8, 0, true);
+    localView.setUint16(10, dosTime, true);
+    localView.setUint16(12, dosDate, true);
+    localView.setUint32(14, checksum, true);
+    localView.setUint32(18, dataBytes.length, true);
+    localView.setUint32(22, dataBytes.length, true);
+    localView.setUint16(26, nameBytes.length, true);
+    localView.setUint16(28, 0, true);
+    local.set(nameBytes, 30);
+    local.set(dataBytes, 30 + nameBytes.length);
+    localParts.push(local);
+
+    const central = new Uint8Array(46 + nameBytes.length);
+    const centralView = new DataView(central.buffer);
+    centralView.setUint32(0, 0x02014b50, true);
+    centralView.setUint16(4, 20, true);
+    centralView.setUint16(6, 20, true);
+    centralView.setUint16(8, 0, true);
+    centralView.setUint16(10, 0, true);
+    centralView.setUint16(12, dosTime, true);
+    centralView.setUint16(14, dosDate, true);
+    centralView.setUint32(16, checksum, true);
+    centralView.setUint32(20, dataBytes.length, true);
+    centralView.setUint32(24, dataBytes.length, true);
+    centralView.setUint16(28, nameBytes.length, true);
+    centralView.setUint16(30, 0, true);
+    centralView.setUint16(32, 0, true);
+    centralView.setUint16(34, 0, true);
+    centralView.setUint16(36, 0, true);
+    centralView.setUint32(38, entry.isDirectory ? 0x10 : 0, true);
+    centralView.setUint32(42, offset, true);
+    central.set(nameBytes, 46);
+    centralParts.push(central);
+
+    offset += local.length;
+  }
+
+  const centralOffset = offset;
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = new Uint8Array(22);
+  const endView = new DataView(end.buffer);
+  endView.setUint32(0, 0x06054b50, true);
+  endView.setUint16(4, 0, true);
+  endView.setUint16(6, 0, true);
+  endView.setUint16(8, entries.length, true);
+  endView.setUint16(10, entries.length, true);
+  endView.setUint32(12, centralSize, true);
+  endView.setUint32(16, centralOffset, true);
+  endView.setUint16(20, 0, true);
+
+  return new Blob([...localParts, ...centralParts, end], { type: 'application/zip' });
+}
+
 /**
  * Fetch the current raw NotebookLM payload for the active mindmap artifact.
  * This is the only function that should know about NotebookLM's private data.
@@ -611,6 +786,32 @@ const exportFreePlane = () => {
   });
 };
 
+const exportVym = () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+    loadCurrentMindmap(tabs[0].id).then(result => {
+      if (!result || result.error || !result.mindmap) {
+        alert((result && result.error) || 'Mindmap frame not found');
+        return;
+      }
+
+      const vymXml = buildVymXml(result.mindmap);
+      const vymArchive = createStoredZip([
+        { name: 'flags/', data: new Uint8Array(0), isDirectory: true },
+        { name: 'flags/standard/', data: new Uint8Array(0), isDirectory: true },
+        { name: 'flags/user/', data: new Uint8Array(0), isDirectory: true },
+        { name: 'images/', data: new Uint8Array(0), isDirectory: true },
+        { name: 'map.xml', data: vymXml, isDirectory: false }
+      ]);
+
+      const filename = getExportFilename('vym', sanitizeRootName(result.mindmap.name));
+      downloadBlob(vymArchive, filename);
+    }).catch(() => {
+      alert('Mindmap export failed');
+    });
+  });
+};
+
 document.getElementById('exportMarkdown').addEventListener('click', exportMarkdown);
 document.getElementById('exportFreePlane').addEventListener('click', exportFreePlane);
+document.getElementById('exportVym').addEventListener('click', exportVym);
 document.getElementById('exportSVG').addEventListener('click', exportSVG);
