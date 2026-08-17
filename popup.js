@@ -182,6 +182,13 @@ function fetchMindmapTree(tabId) {
     func: async () => {
       // Reverse-engineered NotebookLM contract. Keep the volatile pieces
       // together here so protocol/UI changes stay local to this function.
+      //
+      // High-level flow:
+      // 1. Read artifact metadata from NotebookLM's Studio viewer buttons.
+      // 2. Extract notebook/artifact IDs from the decoded jslog payload.
+      // 3. Reuse request tokens exposed on window.WIZ_global_data.
+      // 4. Call NotebookLM's private batchexecute RPC to fetch the tree.
+      // 5. Unescape the embedded JSON payload and parse the first object.
       const NOTEBOOKLM_JSLOG_BASE64_MARKER = '0:';
       const NOTEBOOKLM_ARTIFACT_BUTTON_SELECTOR = 'artifact-viewer button[jslog]';
       const NOTEBOOKLM_UUID_RE = /^[0-9a-f-]{36}$/i;
@@ -271,6 +278,9 @@ function fetchMindmapTree(tabId) {
         return null;
       }
 
+      // NotebookLM does not expose stable public artifact IDs in the visible
+      // UI. The current Studio viewer embeds them in jslog attributes, so we
+      // search those buttons instead of coupling export to iframe internals.
       const candidates = Array.from(
         document.querySelectorAll(NOTEBOOKLM_ARTIFACT_BUTTON_SELECTOR)
       );
@@ -301,6 +311,8 @@ function fetchMindmapTree(tabId) {
       let notebookId;
       let artifactId;
       try {
+        // Current reverse-engineered contract: the decoded jslog payload
+        // contains the notebook ID and the artifact ID as UUID strings.
         const ids = JSON.parse(decoded)
           .flat(Infinity)
           .filter(value => typeof value === 'string' && NOTEBOOKLM_UUID_RE.test(value));
@@ -313,6 +325,8 @@ function fetchMindmapTree(tabId) {
         return { error: 'Mindmap identifiers were not found' };
       }
 
+      // The batchexecute request depends on NotebookLM tokens stored on the
+      // page's global object, which is why this script runs in the MAIN world.
       const wiz = window[NOTEBOOKLM_WIZ_GLOBAL_DATA_KEY] || {};
       const bl = wiz[NOTEBOOKLM_WIZ_BUILD_LABEL_PRIMARY_KEY]
         || wiz[NOTEBOOKLM_WIZ_BUILD_LABEL_FALLBACK_KEY];
@@ -322,6 +336,9 @@ function fetchMindmapTree(tabId) {
         return { error: 'NotebookLM request tokens are unavailable' };
       }
 
+      // NOTEBOOKLM_MINDMAP_RPC_ID is a private RPC identifier discovered by
+      // reverse-engineering NotebookLM network traffic. If Google changes this
+      // RPC or its payload shape, export will fail even if the UI still loads.
       const params = new URLSearchParams({
         rpcids: NOTEBOOKLM_MINDMAP_RPC_ID,
         'source-path': `/notebook/${notebookId}`,
@@ -363,6 +380,9 @@ function fetchMindmapTree(tabId) {
         return { error: 'Failed to fetch current mindmap data' };
       }
 
+      // The RPC response wraps the tree inside escaped HTML content rather
+      // than returning a plain JSON document. We first locate the relevant
+      // region, then reduce escaping, then parse the first full JSON object.
       const dataIndex = text.indexOf(NOTEBOOKLM_RESPONSE_DATA_MARKER);
       if (dataIndex === -1) {
         return { error: 'Mindmap payload not found in NotebookLM response' };
