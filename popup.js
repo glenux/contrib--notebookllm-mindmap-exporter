@@ -180,10 +180,31 @@ function fetchMindmapTree(tabId) {
     target: { tabId },
     world: 'MAIN',
     func: async () => {
+      // Reverse-engineered NotebookLM contract. Keep the volatile pieces
+      // together here so protocol/UI changes stay local to this function.
+      const NOTEBOOKLM_JSLOG_BASE64_MARKER = '0:';
+      const NOTEBOOKLM_ARTIFACT_BUTTON_SELECTOR = 'artifact-viewer button[jslog]';
+      const NOTEBOOKLM_UUID_RE = /^[0-9a-f-]{36}$/i;
+      const NOTEBOOKLM_WIZ_GLOBAL_DATA_KEY = 'WIZ_global_data';
+      const NOTEBOOKLM_WIZ_BUILD_LABEL_PRIMARY_KEY = 'KjTSIf';
+      const NOTEBOOKLM_WIZ_BUILD_LABEL_FALLBACK_KEY = 'cfb2h';
+      const NOTEBOOKLM_WIZ_SESSION_ID_KEY = 'FdrFJe';
+      const NOTEBOOKLM_WIZ_AUTH_TOKEN_KEY = 'SNlM0e';
+      const NOTEBOOKLM_BATCH_EXECUTE_PATH = '/_/LabsTailwindUi/data/batchexecute';
+      const NOTEBOOKLM_MINDMAP_RPC_ID = 'v9rmvd';
+      const NOTEBOOKLM_RESPONSE_DATA_MARKER = 'data-app-data';
+      const NOTEBOOKLM_MINDMAP_RPC_OPTIONS = [
+        2,
+        null,
+        null,
+        [1, null, null, null, null, null, null, null, null, null, [1]],
+        [[1, 4, 8, 10, 2, 3, 6, 7]]
+      ];
+
       // NotebookLM keeps the artifact identifiers in a base64 payload inside
       // the Studio viewer buttons. We reuse that instead of guessing IDs.
       function decodeJslogValue(value) {
-        const marker = '0:';
+        const marker = NOTEBOOKLM_JSLOG_BASE64_MARKER;
         const start = value.indexOf(marker);
         if (start === -1) {
           return null;
@@ -251,7 +272,7 @@ function fetchMindmapTree(tabId) {
       }
 
       const candidates = Array.from(
-        document.querySelectorAll('artifact-viewer button[jslog]')
+        document.querySelectorAll(NOTEBOOKLM_ARTIFACT_BUTTON_SELECTOR)
       );
       const shareButton = candidates.find(button => {
         const decoded = decodeJslogValue(button.getAttribute('jslog') || '');
@@ -261,7 +282,7 @@ function fetchMindmapTree(tabId) {
         try {
           return JSON.parse(decoded)
             .flat(Infinity)
-            .filter(v => typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v))
+            .filter(v => typeof v === 'string' && NOTEBOOKLM_UUID_RE.test(v))
             .length >= 2;
         } catch (error) {
           return false;
@@ -282,7 +303,7 @@ function fetchMindmapTree(tabId) {
       try {
         const ids = JSON.parse(decoded)
           .flat(Infinity)
-          .filter(value => typeof value === 'string' && /^[0-9a-f-]{36}$/i.test(value));
+          .filter(value => typeof value === 'string' && NOTEBOOKLM_UUID_RE.test(value));
         [notebookId, artifactId] = ids;
       } catch (error) {
         return { error: 'Failed to decode mindmap artifact metadata' };
@@ -292,16 +313,17 @@ function fetchMindmapTree(tabId) {
         return { error: 'Mindmap identifiers were not found' };
       }
 
-      const wiz = window.WIZ_global_data || {};
-      const bl = wiz.KjTSIf || wiz.cfb2h;
-      const fSid = wiz.FdrFJe;
-      const at = wiz.SNlM0e;
+      const wiz = window[NOTEBOOKLM_WIZ_GLOBAL_DATA_KEY] || {};
+      const bl = wiz[NOTEBOOKLM_WIZ_BUILD_LABEL_PRIMARY_KEY]
+        || wiz[NOTEBOOKLM_WIZ_BUILD_LABEL_FALLBACK_KEY];
+      const fSid = wiz[NOTEBOOKLM_WIZ_SESSION_ID_KEY];
+      const at = wiz[NOTEBOOKLM_WIZ_AUTH_TOKEN_KEY];
       if (!bl || !fSid || !at) {
         return { error: 'NotebookLM request tokens are unavailable' };
       }
 
       const params = new URLSearchParams({
-        rpcids: 'v9rmvd',
+        rpcids: NOTEBOOKLM_MINDMAP_RPC_ID,
         'source-path': `/notebook/${notebookId}`,
         bl,
         'f.sid': fSid,
@@ -310,9 +332,9 @@ function fetchMindmapTree(tabId) {
         rt: 'c'
       });
 
-      const payload = [[['v9rmvd', JSON.stringify([
+      const payload = [[[NOTEBOOKLM_MINDMAP_RPC_ID, JSON.stringify([
         artifactId,
-        [2, null, null, [1, null, null, null, null, null, null, null, null, null, [1]], [[1, 4, 8, 10, 2, 3, 6, 7]]]
+        NOTEBOOKLM_MINDMAP_RPC_OPTIONS
       ]), null, 'generic']]];
 
       const body = new URLSearchParams({
@@ -322,7 +344,7 @@ function fetchMindmapTree(tabId) {
 
       let text;
       try {
-        const response = await fetch(`/_/LabsTailwindUi/data/batchexecute?${params.toString()}`, {
+        const response = await fetch(`${NOTEBOOKLM_BATCH_EXECUTE_PATH}?${params.toString()}`, {
           method: 'POST',
           credentials: 'include',
           headers: {
@@ -341,7 +363,7 @@ function fetchMindmapTree(tabId) {
         return { error: 'Failed to fetch current mindmap data' };
       }
 
-      const dataIndex = text.indexOf('data-app-data');
+      const dataIndex = text.indexOf(NOTEBOOKLM_RESPONSE_DATA_MARKER);
       if (dataIndex === -1) {
         return { error: 'Mindmap payload not found in NotebookLM response' };
       }
