@@ -191,6 +191,88 @@ function buildMindmapSvg(tree) {
 </svg>`;
 }
 
+/**
+ * @param {MindmapNode} tree
+ */
+function buildFreePlane(tree) {
+  let nextId = 1;
+
+  function createNodeId() {
+    const id = `ID_${nextId}`;
+    nextId += 1;
+    return id;
+  }
+
+  function buildNode(node, depth = 0) {
+    const indent = '  '.repeat(depth + 1);
+    const attributes = [
+      `TEXT="${escapeXml(node.name || 'unknown')}"`,
+      `ID="${createNodeId()}"`
+    ];
+
+    if (depth === 0) {
+      attributes.push('STYLE="oval"');
+    }
+
+    // FreePlane uses POSITION only for direct children of the root.
+    if (depth === 1) {
+      attributes.push('POSITION="right"');
+    }
+
+    const children = node.children || [];
+    if (depth > 0 && children.length === 0) {
+      return `${indent}<node ${attributes.join(' ')} />`;
+    }
+
+    const lines = [`${indent}<node ${attributes.join(' ')}>`];
+
+    if (depth === 0) {
+      lines.push(`${indent}  <hook NAME="MapStyle">`);
+      lines.push(`${indent}    <properties edgeColorConfiguration="#808080ff,#ff0000ff,#0000ffff,#00ff00ff,#ff00ffff,#00ffffff,#7c0000ff,#00007cff,#007c00ff,#7c007cff,#007c7cff,#7c7c00ff"/>`);
+      lines.push(`${indent}    <map_styles>`);
+      lines.push(`${indent}      <stylenode LOCALIZED_TEXT="styles.root_node" STYLE="oval" SHAPE_VERTICAL_MARGIN="12.0 pt" SHAPE_HORIZONTAL_MARGIN="6.0 pt">`);
+      lines.push(`${indent}        <stylenode LOCALIZED_TEXT="styles.predefined" POSITION="right">`);
+      lines.push(`${indent}          <stylenode LOCALIZED_TEXT="default" COLOR="#000000" STYLE="fork" ICON_SIZE="12.0 pt">`);
+      lines.push(`${indent}            <font NAME="SansSerif" SIZE="10" BOLD="false" ITALIC="false"/>`);
+      lines.push(`${indent}          </stylenode>`);
+      lines.push(`${indent}          <stylenode LOCALIZED_TEXT="defaultstyle.details"/>`);
+      lines.push(`${indent}          <stylenode LOCALIZED_TEXT="defaultstyle.note" COLOR="#000000" BACKGROUND_COLOR="#ffffff" TEXT_ALIGN="LEFT"/>`);
+      lines.push(`${indent}          <stylenode LOCALIZED_TEXT="defaultstyle.floating">`);
+      lines.push(`${indent}            <edge STYLE="hide_edge"/>`);
+      lines.push(`${indent}            <cloud COLOR="#f0f0f0" SHAPE="ROUND_RECT"/>`);
+      lines.push(`${indent}          </stylenode>`);
+      lines.push(`${indent}        </stylenode>`);
+      lines.push(`${indent}        <stylenode LOCALIZED_TEXT="styles.AutomaticLayout" POSITION="right">`);
+      lines.push(`${indent}          <stylenode LOCALIZED_TEXT="AutomaticLayout.level.root" COLOR="#000000" STYLE="oval" SHAPE_VERTICAL_MARGIN="10.0 pt" SHAPE_HORIZONTAL_MARGIN="10.0 pt">`);
+      lines.push(`${indent}            <font SIZE="18"/>`);
+      lines.push(`${indent}          </stylenode>`);
+      lines.push(`${indent}          <stylenode LOCALIZED_TEXT="AutomaticLayout.level,1" COLOR="#0033ff"><font SIZE="16"/></stylenode>`);
+      lines.push(`${indent}          <stylenode LOCALIZED_TEXT="AutomaticLayout.level,2" COLOR="#00b439"><font SIZE="14"/></stylenode>`);
+      lines.push(`${indent}          <stylenode LOCALIZED_TEXT="AutomaticLayout.level,3" COLOR="#990000"><font SIZE="12"/></stylenode>`);
+      lines.push(`${indent}          <stylenode LOCALIZED_TEXT="AutomaticLayout.level,4" COLOR="#111111"><font SIZE="10"/></stylenode>`);
+      lines.push(`${indent}        </stylenode>`);
+      lines.push(`${indent}      </stylenode>`);
+      lines.push(`${indent}    </map_styles>`);
+      lines.push(`${indent}  </hook>`);
+      lines.push(`${indent}  <hook NAME="AutomaticEdgeColor" COUNTER="0" RULE="ON_BRANCH_CREATION"/>`);
+    }
+
+    if (children.length > 0) {
+      lines.push(children.map(child => buildNode(child, depth + 1)).join('\n'));
+    }
+
+    lines.push(`${indent}</node>`);
+    return lines.join('\n');
+  }
+
+  return [
+    '<map version="freeplane 1.6.0">',
+    '<!--To view this file, download free mind mapping software Freeplane from https://www.freeplane.org -->',
+    buildNode(tree, 0),
+    '</map>'
+  ].join('\n');
+}
+
 function escapeXml(value) {
   return value
     .replace(/&/g, '&amp;')
@@ -512,5 +594,23 @@ const exportSVG = () => {
   });
 };
 
+const exportFreePlane = () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+    loadCurrentMindmap(tabs[0].id).then(result => {
+      if (!result || result.error || !result.mindmap) {
+        alert((result && result.error) || 'Mindmap frame not found');
+        return;
+      }
+
+      const freePlane = buildFreePlane(result.mindmap);
+      const filename = getExportFilename('mm', sanitizeRootName(result.mindmap.name));
+      downloadBlob(new Blob([freePlane], { type: 'application/xml' }), filename);
+    }).catch(() => {
+      alert('Mindmap export failed');
+    });
+  });
+};
+
 document.getElementById('exportMarkdown').addEventListener('click', exportMarkdown);
+document.getElementById('exportFreePlane').addEventListener('click', exportFreePlane);
 document.getElementById('exportSVG').addEventListener('click', exportSVG);

@@ -26,7 +26,7 @@ jobs:
             icon.png \
             LICENSE \
             manifest.json \
-            parser.js \
+            mindmap-contract.js \
             popup.css \
             popup.html \
             popup.js \
