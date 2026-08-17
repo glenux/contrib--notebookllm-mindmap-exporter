@@ -34,6 +34,48 @@ function getHeadingDepthLimit() {
   return Number.isFinite(value) ? Math.min(Math.max(value, 1), 6) : 2;
 }
 
+/**
+ * Provider-agnostic tree consumed by the Markdown and SVG exporters.
+ *
+ * @typedef {Object} MindmapNode
+ * @property {string} name
+ * @property {MindmapNode[]} children
+ */
+
+/**
+ * Normalize and validate a raw provider node before it reaches the exporters.
+ *
+ * @param {unknown} raw
+ * @param {string} [path]
+ * @returns {MindmapNode}
+ */
+function normalizeMindmapNode(raw, path = 'root') {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(`Mindmap node at ${path} must be an object`);
+  }
+
+  const node = /** @type {{ name?: unknown, children?: unknown }} */ (raw);
+  if (typeof node.name !== 'string' || node.name.trim() === '') {
+    throw new Error(`Mindmap node at ${path} is missing a valid name`);
+  }
+
+  const children = node.children == null ? [] : node.children;
+  if (!Array.isArray(children)) {
+    throw new Error(`Mindmap node at ${path}.children must be an array`);
+  }
+
+  return {
+    name: node.name,
+    children: children.map((child, index) =>
+      normalizeMindmapNode(child, `${path}.children[${index}]`)
+    )
+  };
+}
+
+/**
+ * @param {MindmapNode} tree
+ * @param {number} headingDepthLimit
+ */
 function buildMarkdown(tree, headingDepthLimit) {
   const lines = [];
   let total = 0;
@@ -76,6 +118,9 @@ function buildMarkdown(tree, headingDepthLimit) {
   };
 }
 
+/**
+ * @param {MindmapNode} tree
+ */
 function buildMindmapSvg(tree) {
   // Build a simple static SVG from the tree so we do not depend on
   // NotebookLM's cross-origin mindmap iframe internals.
@@ -418,7 +463,23 @@ function fetchMindmapTree(tabId) {
         return { error: 'Mindmap JSON payload is invalid' };
       }
     }
-  }).then(results => results[0]?.result || null);
+  }).then(results => {
+    const result = results[0]?.result || null;
+    if (!result || result.error || !result.tree) {
+      return result;
+    }
+
+    try {
+      return {
+        ...result,
+        tree: normalizeMindmapNode(result.tree)
+      };
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : 'Mindmap tree shape is invalid'
+      };
+    }
+  });
 }
 
 const exportMarkdown = () => {
