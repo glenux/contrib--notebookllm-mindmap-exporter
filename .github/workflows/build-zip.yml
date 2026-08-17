@@ -30,6 +30,8 @@ jobs:
             popup.css \
             popup.html \
             popup.js \
+            formats \
+            shared \
             README.md \
             webstore-keywords.txt \
             webstore-promo.html
