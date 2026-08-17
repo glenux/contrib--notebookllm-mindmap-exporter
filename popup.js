@@ -43,33 +43,13 @@ function getHeadingDepthLimit() {
  */
 
 /**
- * Normalize and validate a raw provider node before it reaches the exporters.
- *
- * @param {unknown} raw
- * @param {string} [path]
- * @returns {MindmapNode}
+ * @typedef {{ mindmap: MindmapNode } | { error: string }} MindmapLoadResult
  */
-function normalizeMindmapNode(raw, path = 'root') {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new Error(`Mindmap node at ${path} must be an object`);
-  }
 
-  const node = /** @type {{ name?: unknown, children?: unknown }} */ (raw);
-  if (typeof node.name !== 'string' || node.name.trim() === '') {
-    throw new Error(`Mindmap node at ${path} is missing a valid name`);
-  }
+const { adaptNotebookLmPayload: adaptMindmapPayload } = globalThis.MindmapContract || {};
 
-  const children = node.children == null ? [] : node.children;
-  if (!Array.isArray(children)) {
-    throw new Error(`Mindmap node at ${path}.children must be an array`);
-  }
-
-  return {
-    name: node.name,
-    children: children.map((child, index) =>
-      normalizeMindmapNode(child, `${path}.children[${index}]`)
-    )
-  };
+if (typeof adaptMindmapPayload !== 'function') {
+  throw new Error('MindmapContract.adaptNotebookLmPayload is not available');
 }
 
 /**
@@ -220,7 +200,13 @@ function escapeXml(value) {
     .replace(/'/g, '&apos;');
 }
 
-function fetchMindmapTree(tabId) {
+/**
+ * Fetch the current raw NotebookLM payload for the active mindmap artifact.
+ * This is the only function that should know about NotebookLM's private data.
+ *
+ * @param {number} tabId
+ */
+function fetchNotebookLmMindmapPayload(tabId) {
   return chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -457,22 +443,31 @@ function fetchMindmapTree(tabId) {
 
       try {
         return {
-          tree: JSON.parse(jsonText)
+          payload: JSON.parse(jsonText)
         };
       } catch (error) {
         return { error: 'Mindmap JSON payload is invalid' };
       }
     }
-  }).then(results => {
-    const result = results[0]?.result || null;
-    if (!result || result.error || !result.tree) {
+  }).then(results => results[0]?.result || null);
+}
+
+/**
+ * Load the current mindmap as the provider-agnostic domain model consumed by
+ * the Markdown and SVG exporters.
+ *
+ * @param {number} tabId
+ * @returns {Promise<MindmapLoadResult | null>}
+ */
+function loadCurrentMindmap(tabId) {
+  return fetchNotebookLmMindmapPayload(tabId).then(result => {
+    if (!result || result.error || !('payload' in result)) {
       return result;
     }
 
     try {
       return {
-        ...result,
-        tree: normalizeMindmapNode(result.tree)
+        mindmap: adaptMindmapPayload(result.payload)
       };
     } catch (error) {
       return {
@@ -484,14 +479,14 @@ function fetchMindmapTree(tabId) {
 
 const exportMarkdown = () => {
   chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-    fetchMindmapTree(tabs[0].id).then(result => {
-      if (!result || result.error || !result.tree) {
+    loadCurrentMindmap(tabs[0].id).then(result => {
+      if (!result || result.error || !result.mindmap) {
         alert((result && result.error) || 'Mindmap frame not found');
         return;
       }
 
-      const { markdown, stats } = buildMarkdown(result.tree, getHeadingDepthLimit());
-      const filename = getExportFilename('md', sanitizeRootName(result.tree.name));
+      const { markdown, stats } = buildMarkdown(result.mindmap, getHeadingDepthLimit());
+      const filename = getExportFilename('md', sanitizeRootName(result.mindmap.name));
       downloadBlob(new Blob([markdown], { type: 'text/markdown' }), filename);
       alert(`Export completed!\nTotal nodes: ${stats.total}`);
     }).catch(() => {
@@ -502,14 +497,14 @@ const exportMarkdown = () => {
 
 const exportSVG = () => {
   chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-    fetchMindmapTree(tabs[0].id).then(result => {
-      if (!result || result.error || !result.tree) {
+    loadCurrentMindmap(tabs[0].id).then(result => {
+      if (!result || result.error || !result.mindmap) {
         alert((result && result.error) || 'Mindmap frame not found');
         return;
       }
 
-      const svg = buildMindmapSvg(result.tree);
-      const filename = getExportFilename('svg', sanitizeRootName(result.tree.name));
+      const svg = buildMindmapSvg(result.mindmap);
+      const filename = getExportFilename('svg', sanitizeRootName(result.mindmap.name));
       downloadBlob(new Blob([svg], { type: 'image/svg+xml' }), filename);
     }).catch(() => {
       alert('Mindmap export failed');
