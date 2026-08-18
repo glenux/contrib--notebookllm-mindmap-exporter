@@ -8,6 +8,7 @@ Export mindmaps from NotebookLLM as Markdown, FreePlane, VYM, or standalone SVG.
 - Export to FreePlane `.mm`
 - Export to VYM `.vym`
 - Export to standalone SVG
+- Optional interactive SVG with collapsible nodes (collapse level 2+)
 - Choose how many levels are exported as Markdown headings before switching to bullet lists
 - Modern, user-friendly popup UI
 - File names include root node and timestamp for easy management
@@ -43,7 +44,7 @@ Export mindmaps from NotebookLLM as Markdown, FreePlane, VYM, or standalone SVG.
 
 This extension is only intended for use with mindmaps on NotebookLM, such as [notebooklm.google.com](https://notebooklm.google.com/notebook/ba86347e-d24c-4387-915f-18e20a2f51fe). To export, simply open a mindmap in a notebook, click the extension, and choose your export format.
 
-**How it works:** The extension exports the current NotebookLM mindmap as Markdown, FreePlane `.mm`, VYM `.vym`, or standalone SVG.
+**How it works:** The extension exports the current NotebookLM mindmap as Markdown, FreePlane `.mm`, VYM `.vym`, or standalone SVG, with an optional interactive mode for collapsible SVG nodes.
 
 ## Usage
 
@@ -52,6 +53,8 @@ This extension is only intended for use with mindmaps on NotebookLM, such as [no
 3. Choose your export format in the popup to download the file.
 
 For Markdown exports, the `Use headings through depth` setting controls how many tree levels are rendered as headings before deeper levels switch to bullet lists.
+
+For SVG exports, enable `Interactive SVG (collapse level 2+)` to export a collapsible SVG. Leave it unchecked for the static SVG export.
 
 ## File Naming
 

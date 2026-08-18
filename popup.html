@@ -60,6 +60,18 @@
       background: #fff;
       color: #222;
     }
+    .field--checkbox label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 0;
+      cursor: pointer;
+    }
+    .field--checkbox input {
+      width: auto;
+      padding: 0;
+      border: 0;
+    }
     button {
       padding: 8px 0;
       margin: 6px 0;
@@ -85,6 +97,12 @@
     <div class="field">
       <label for="headingDepthLimit">Use headings through depth</label>
       <input id="headingDepthLimit" type="number" min="1" max="6" step="1" value="2">
+    </div>
+    <div class="field field--checkbox">
+      <label for="interactiveSvg">
+        <input id="interactiveSvg" type="checkbox">
+        Interactive SVG (collapse level 2+)
+      </label>
     </div>
     <button id="exportMarkdown">Export as Markdown</button>
     <button id="exportFreePlane">Export as FreePlane</button>

@@ -37,6 +37,11 @@ function getHeadingDepthLimit() {
   return Number.isFinite(value) ? Math.min(Math.max(value, 1), 6) : 2;
 }
 
+function getInteractiveSvgEnabled() {
+  const input = document.getElementById('interactiveSvg');
+  return Boolean(input?.checked);
+}
+
 /**
  * Provider-agnostic tree consumed by the Markdown and SVG exporters.
  *
@@ -661,7 +666,9 @@ const exportSVG = () => {
         return;
       }
 
-      const svg = buildMindmapSvg(result.mindmap);
+      const svg = buildMindmapSvg(result.mindmap, {
+        interactive: getInteractiveSvgEnabled()
+      });
       const filename = getExportFilename('svg', sanitizeRootName(result.mindmap.name));
       downloadBlob(new Blob([svg], { type: 'image/svg+xml' }), filename);
     }).catch(() => {
