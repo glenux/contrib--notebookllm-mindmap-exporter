@@ -1,6 +1,8 @@
 import { buildMindmapSvg } from './formats/svg.js';
 import { escapeXml } from './shared/xml.js';
 
+const extensionApi = globalThis.browser ?? globalThis.chrome;
+
 function getExportFilename(ext, rootName) {
   const now = new Date();
   const pad = n => n.toString().padStart(2, '0');
@@ -40,6 +42,33 @@ function getHeadingDepthLimit() {
 function getInteractiveSvgEnabled() {
   const input = document.getElementById('interactiveSvg');
   return Boolean(input?.checked);
+}
+
+function queryActiveTab() {
+  if (globalThis.browser?.tabs?.query) {
+    return globalThis.browser.tabs.query({ active: true, currentWindow: true })
+      .then(tabs => tabs[0] || null);
+  }
+
+  return new Promise((resolve, reject) => {
+    globalThis.chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+      const error = globalThis.chrome.runtime?.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+
+      resolve(tabs[0] || null);
+    });
+  });
+}
+
+function executeScriptInMainWorld(tabId, func) {
+  return extensionApi.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func
+  });
 }
 
 /**
@@ -370,10 +399,7 @@ function createStoredZip(entries) {
  * @param {number} tabId
  */
 function fetchNotebookLmMindmapPayload(tabId) {
-  return chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN',
-    func: async () => {
+  return executeScriptInMainWorld(tabId, async () => {
       // Reverse-engineered NotebookLM contract. Keep the volatile pieces
       // together here so protocol/UI changes stay local to this function.
       //
@@ -640,82 +666,66 @@ function loadCurrentMindmap(tabId) {
   });
 }
 
-const exportMarkdown = () => {
-  chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-    loadCurrentMindmap(tabs[0].id).then(result => {
-      if (!result || result.error || !result.mindmap) {
-        alert((result && result.error) || 'Mindmap frame not found');
-        return;
-      }
+async function withCurrentMindmap(onMindmap) {
+  try {
+    const tab = await queryActiveTab();
+    if (!tab?.id) {
+      alert('Active tab not found');
+      return;
+    }
 
-      const { markdown, stats } = buildMarkdown(result.mindmap, getHeadingDepthLimit());
-      const filename = getExportFilename('md', sanitizeRootName(result.mindmap.name));
-      downloadBlob(new Blob([markdown], { type: 'text/markdown' }), filename);
-      alert(`Export completed!\nTotal nodes: ${stats.total}`);
-    }).catch(() => {
-      alert('Mindmap export failed');
-    });
+    const result = await loadCurrentMindmap(tab.id);
+    if (!result || result.error || !result.mindmap) {
+      alert((result && result.error) || 'Mindmap frame not found');
+      return;
+    }
+
+    onMindmap(result.mindmap);
+  } catch (error) {
+    alert('Mindmap export failed');
+  }
+}
+
+const exportMarkdown = () => {
+  withCurrentMindmap(mindmap => {
+    const { markdown, stats } = buildMarkdown(mindmap, getHeadingDepthLimit());
+    const filename = getExportFilename('md', sanitizeRootName(mindmap.name));
+    downloadBlob(new Blob([markdown], { type: 'text/markdown' }), filename);
+    alert(`Export completed!\nTotal nodes: ${stats.total}`);
   });
 };
 
 const exportSVG = () => {
-  chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-    loadCurrentMindmap(tabs[0].id).then(result => {
-      if (!result || result.error || !result.mindmap) {
-        alert((result && result.error) || 'Mindmap frame not found');
-        return;
-      }
-
-      const svg = buildMindmapSvg(result.mindmap, {
-        interactive: getInteractiveSvgEnabled()
-      });
-      const filename = getExportFilename('svg', sanitizeRootName(result.mindmap.name));
-      downloadBlob(new Blob([svg], { type: 'image/svg+xml' }), filename);
-    }).catch(() => {
-      alert('Mindmap export failed');
+  withCurrentMindmap(mindmap => {
+    const svg = buildMindmapSvg(mindmap, {
+      interactive: getInteractiveSvgEnabled()
     });
+    const filename = getExportFilename('svg', sanitizeRootName(mindmap.name));
+    downloadBlob(new Blob([svg], { type: 'image/svg+xml' }), filename);
   });
 };
 
 const exportFreePlane = () => {
-  chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-    loadCurrentMindmap(tabs[0].id).then(result => {
-      if (!result || result.error || !result.mindmap) {
-        alert((result && result.error) || 'Mindmap frame not found');
-        return;
-      }
-
-      const freePlane = buildFreePlane(result.mindmap);
-      const filename = getExportFilename('mm', sanitizeRootName(result.mindmap.name));
-      downloadBlob(new Blob([freePlane], { type: 'application/xml' }), filename);
-    }).catch(() => {
-      alert('Mindmap export failed');
-    });
+  withCurrentMindmap(mindmap => {
+    const freePlane = buildFreePlane(mindmap);
+    const filename = getExportFilename('mm', sanitizeRootName(mindmap.name));
+    downloadBlob(new Blob([freePlane], { type: 'application/xml' }), filename);
   });
 };
 
 const exportVym = () => {
-  chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-    loadCurrentMindmap(tabs[0].id).then(result => {
-      if (!result || result.error || !result.mindmap) {
-        alert((result && result.error) || 'Mindmap frame not found');
-        return;
-      }
+  withCurrentMindmap(mindmap => {
+    const vymXml = buildVymXml(mindmap);
+    const vymArchive = createStoredZip([
+      { name: 'flags/', data: new Uint8Array(0), isDirectory: true },
+      { name: 'flags/standard/', data: new Uint8Array(0), isDirectory: true },
+      { name: 'flags/user/', data: new Uint8Array(0), isDirectory: true },
+      { name: 'images/', data: new Uint8Array(0), isDirectory: true },
+      { name: 'map.xml', data: vymXml, isDirectory: false }
+    ]);
 
-      const vymXml = buildVymXml(result.mindmap);
-      const vymArchive = createStoredZip([
-        { name: 'flags/', data: new Uint8Array(0), isDirectory: true },
-        { name: 'flags/standard/', data: new Uint8Array(0), isDirectory: true },
-        { name: 'flags/user/', data: new Uint8Array(0), isDirectory: true },
-        { name: 'images/', data: new Uint8Array(0), isDirectory: true },
-        { name: 'map.xml', data: vymXml, isDirectory: false }
-      ]);
-
-      const filename = getExportFilename('vym', sanitizeRootName(result.mindmap.name));
-      downloadBlob(vymArchive, filename);
-    }).catch(() => {
-      alert('Mindmap export failed');
-    });
+    const filename = getExportFilename('vym', sanitizeRootName(mindmap.name));
+    downloadBlob(vymArchive, filename);
   });
 };
 

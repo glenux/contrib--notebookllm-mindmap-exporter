@@ -15,7 +15,7 @@ Export mindmaps from NotebookLLM as Markdown, FreePlane, VYM, or standalone SVG.
 
 ## Installation
 
-### Loading the Extension in Chrome
+### Build the Browser Packages
 
 1. **Download or Clone the Repository**
    ```bash
@@ -23,22 +23,52 @@ Export mindmaps from NotebookLLM as Markdown, FreePlane, VYM, or standalone SVG.
    cd notebookllm-mindmap-exporter
    ```
 
-2. **Open Chrome Extensions Page**
+2. **Generate the Chrome and Firefox extension folders**
+   ```bash
+   make chrome firefox
+   ```
+
+3. **Use one of the generated folders**
+   - Chrome/Chromium: `dist/chrome`
+   - Firefox: `dist/firefox`
+   - Zip archives: `dist/mindmap-exporter-chrome.zip` and `dist/mindmap-exporter-firefox.zip`
+
+4. **Clean generated files when needed**
+   ```bash
+   make clean
+   ```
+
+### Loading the Extension in Chrome/Chromium
+
+1. **Open Chrome Extensions Page**
    - Open Chrome browser
    - Navigate to `chrome://extensions/`
    - Or go to Menu → More Tools → Extensions
 
-3. **Enable Developer Mode**
+2. **Enable Developer Mode**
    - Toggle the "Developer mode" switch in the top-right corner
 
-4. **Load the Extension**
+3. **Load the Extension**
    - Click "Load unpacked" button
-   - Select the `notebookllm-mindmap-exporter` folder
+   - Select the `dist/chrome` folder
    - The extension should now appear in your extensions list
 
-5. **Verify Installation**
+4. **Verify Installation**
    - You should see the extension icon in your Chrome toolbar
    - If not visible, click the puzzle piece icon to pin it to the toolbar
+
+### Loading the Extension in Firefox
+
+1. **Open Firefox Debugging Page**
+   - Open Firefox browser
+   - Navigate to `about:debugging#/runtime/this-firefox`
+
+2. **Load the Extension**
+   - Click "Load Temporary Add-on"
+   - Select the `dist/firefox/manifest.json` file
+
+3. **Verify Installation**
+   - The extension should now appear in the Firefox toolbar or extensions menu
 
 ## Note
 

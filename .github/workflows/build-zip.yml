@@ -1,4 +1,4 @@
-name: Build Chrome Extension Zip
+name: Build Extension Packages
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-zip:
+  build-packages:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -17,27 +17,17 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Create zip package
-        run: |
-          zip -r mindmap-exporter.zip \
-            background.js \
-            content.js \
-            description.txt \
-            icon.png \
-            LICENSE \
-            manifest.json \
-            mindmap-contract.js \
-            popup.css \
-            popup.html \
-            popup.js \
-            formats \
-            shared \
-            README.md \
-            webstore-keywords.txt \
-            webstore-promo.html
+      - name: Build browser packages
+        run: make chrome firefox
 
-      - name: Upload zip artifact
+      - name: Upload Chrome zip artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mindmap-exporter-zip
-          path: mindmap-exporter.zip
+          name: mindmap-exporter-chrome
+          path: dist/mindmap-exporter-chrome.zip
+
+      - name: Upload Firefox zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mindmap-exporter-firefox
+          path: dist/mindmap-exporter-firefox.zip

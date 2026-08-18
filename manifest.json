@@ -3,11 +3,7 @@
   "name": "Mindmap Exporter",
   "version": "1.0.0",
   "description": "Export NotebookLM mindmaps as Markdown, FreePlane, VYM, or standalone SVG.",
-  "permissions": ["activeTab", "scripting", "downloads"],
-  "host_permissions": ["<all_urls>"],
-  "background": {
-    "service_worker": "background.js"
-  },
+  "permissions": ["activeTab", "scripting"],
   "action": {
     "default_title": "Export Mindmap",
     "default_popup": "popup.html"
